@@ -145,7 +145,6 @@ define("background", ["require", "exports", "response-types"], function (require
         if (!attached) {
             chrome.debugger.getTargets((targets) => {
                 // Get the Granblue Tab
-                console.log({ targets });
                 target = targets.find((target) => target.type === "page" && ["Granblue Fantasy", "グランブルーファンタジー"].includes(target.title));
                 if (target?.tabId) {
                     // Attach the debugger so we can intercept requests
