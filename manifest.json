@@ -1,0 +1,13 @@
+{
+    "name": "loot-tracker",
+    "description": "Tracks granblue drops",
+    "version": "1.0",
+    "manifest_version": 2,
+    "permissions": ["tabs", "webRequest", "activeTab", "debugger", "storage", "*://*.granbluefantasy.jp/"],
+    "browser_action": {
+        "click": "Activate loot tracker"
+    },
+    "background": {
+        "service_worker": "./background.js"
+    }
+}

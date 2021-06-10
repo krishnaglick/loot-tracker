@@ -1,0 +1,13 @@
+{
+    "name": "loot-tracker",
+    "version": "1.0.0",
+    "main": "background.js",
+    "author": "Krishna Glick <unstoppable411@gmail.com>",
+    "license": "MIT",
+    "dependencies": {
+        "typescript": "^4.3.2"
+    },
+    "devDependencies": {
+        "@types/chrome": "^0.0.145"
+    }
+}
