@@ -514,5 +514,5 @@ export type BattleWithRewards = {
 };
 
 export function BattleHasRewards(v: any): v is BattleWithRewards {
-    return !!(v && v.rewards?.reward_list);
+    return !!v?.rewards?.reward_list;
 }

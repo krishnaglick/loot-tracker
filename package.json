@@ -2,8 +2,11 @@
     "name": "loot-tracker",
     "version": "1.0.0",
     "main": "background.js",
-    "author": "Krishna Glick <unstoppable411@gmail.com>",
+    "author": "Krishna Glick <krishnaglick@gmail.com>",
     "license": "MIT",
+    "scripts": {
+        "build": "yarn tsc"
+    },
     "dependencies": {
         "typescript": "^4.3.2"
     },
