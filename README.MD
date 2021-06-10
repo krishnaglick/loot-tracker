@@ -1,6 +1,5 @@
 # How To Setup
 
-## Git Clone Method
 - git clone the repo OR download the zip and unzip
 - Open chrome extensions
 - Turn on developer mode
