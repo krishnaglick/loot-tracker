@@ -1,6 +1,7 @@
 import {
     BattleHasRewards,
     BattleWithRewards,
+    isBattleStatus,
     isBattleUserData,
     isGranblueResponse,
     isUserData,
@@ -22,9 +23,13 @@ const chestMap: { [key: number]: string } = {
     2: "Silver",
     3: "Gold",
     4: "MVP",
-    11: "Host",
-    13: "Blue",
+    11: "Blue",
+    13: "Purple",
 };
+
+const fightData: {
+    [raidId: string]: {};
+} = {};
 
 function normalizeLoot(battleData: BattleWithRewards) {
     const raw: any[] = [];
@@ -61,68 +66,85 @@ function haveRequestId(v: any): v is { requestId: string } {
     return !!(v && v.hasOwnProperty("requestId"));
 }
 
-const allEventHandler: Parameters<typeof chrome.debugger.onEvent.addListener>["0"] = ({ tabId }, message, params) => {
+const getRequestData = (tabId: number, requestId: string) =>
+    Promise.all([
+        new Promise<Object | undefined>((res) =>
+            chrome.debugger.sendCommand(
+                {
+                    tabId,
+                },
+                "Network.getResponseBody",
+                {
+                    requestId: requestId,
+                },
+                res
+            )
+        ),
+        new Promise<chrome.tabs.Tab>((res) => chrome.tabs.get(tabId, res)),
+    ]);
+
+const allEventHandler: Parameters<typeof chrome.debugger.onEvent.addListener>["0"] = async (
+    source,
+    message,
+    params
+) => {
+    const { tabId } = source;
     if (message == "Network.responseReceived" && haveRequestId(params)) {
         // This lets us get the response data from the intercepted request
-        chrome.debugger.sendCommand(
-            {
-                tabId,
-            },
-            "Network.getResponseBody",
-            {
-                requestId: params.requestId,
-            },
-            (response) => {
-                // There's a lotta data coming across, some we don't care about.
-                if (isGranblueResponse(response)) {
-                    try {
-                        const data = JSON.parse(response.body);
-                        console.log("Response Body: ", data);
-                        // Save the user for reporting
-                        if (isBattleUserData(data)) {
-                            currentUser.id = data.user_id;
-                            currentUser.name = data.nickname;
-                            storeUser(currentUser);
-                        }
-                        if (isUserData(data)) {
-                            currentUser.id = data.id;
-                            currentUser.name = data.nickname;
-                            storeUser(currentUser);
-                        }
+        const [response, tabInfo] = await getRequestData(tabId ?? 0, params.requestId);
+        let battleId = NaN;
+        if (tabInfo.url?.includes("raid_multi")) {
+            battleId = Number(tabInfo.url?.split("/").slice(-1)[0]);
+        } else if (tabInfo.url?.includes("result_multi")) {
+            battleId = Number(tabInfo.url?.split("/").slice(-2)[0]);
+        }
+        if (isGranblueResponse(response) && !isNaN(battleId)) {
+            console.log({ battleId });
+            try {
+                const data = JSON.parse(response.body);
+                console.log("Response Body: ", data);
+                // Save the user for reporting
+                if (isBattleUserData(data)) {
+                    currentUser.id = data.user_id;
+                    currentUser.name = data.nickname;
+                    storeUser(currentUser);
+                }
+                if (isUserData(data)) {
+                    currentUser.id = data.id;
+                    currentUser.name = data.nickname;
+                    storeUser(currentUser);
+                }
 
-                        // If we got reward data
-                        if (BattleHasRewards(data)) {
-                            normalizeLoot(data);
-                            // Below is some basic chest logging, this isn't what's reported.
-                            Object.entries(data.rewards.reward_list).forEach(([chestNumber, chestContents]) => {
-                                if (Object.values(chestContents).length) {
-                                    console.log(
-                                        `Received ${Object.values(chestContents)
-                                            .map((contents) => `${contents.count} ${contents.name}`)
-                                            .join(", ")} from ${
-                                            chestMap[chestNumber as unknown as number]
-                                        } Chest(s) - (${chestNumber})`
-                                    );
-                                }
-                            });
-                            Object.entries(data.rewards.auto_recycling_weapon_list).forEach(
-                                ([chestNumber, chestContents]) => {
-                                    if (Object.values(chestContents).length) {
-                                        console.log(
-                                            `Reserved ${Object.values(chestContents)
-                                                .map((contents) => `${contents.count} ${contents.name}`)
-                                                .join(", ")} from ${
-                                                chestMap[chestNumber as unknown as number]
-                                            } Chest(s) - Reserved`
-                                        );
-                                    }
-                                }
+                if (isBattleStatus(data)) {
+                }
+
+                // If we got reward data
+                if (BattleHasRewards(data)) {
+                    normalizeLoot(data);
+                    // Below is some basic chest logging, this isn't what's reported.
+                    Object.entries(data.rewards.reward_list).forEach(([chestNumber, chestContents]) => {
+                        if (Object.values(chestContents).length) {
+                            console.log(
+                                `Received ${Object.values(chestContents)
+                                    .map((contents) => `${contents.count} ${contents.name}`)
+                                    .join(", ")} from ${
+                                    chestMap[chestNumber as unknown as number]
+                                } Chest(s) - (${chestNumber})`
                             );
                         }
-                    } catch {}
+                    });
+                    Object.entries(data.rewards.auto_recycling_weapon_list).forEach(([chestNumber, chestContents]) => {
+                        if (Object.values(chestContents).length) {
+                            console.log(
+                                `Reserved ${Object.values(chestContents)
+                                    .map((contents) => `${contents.count} ${contents.name}`)
+                                    .join(", ")} from ${chestMap[chestNumber as unknown as number]} Chest(s) - Reserved`
+                            );
+                        }
+                    });
                 }
-            }
-        );
+            } catch {}
+        }
     }
 };
 

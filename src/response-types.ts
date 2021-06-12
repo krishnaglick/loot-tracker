@@ -516,3 +516,51 @@ export type BattleWithRewards = {
 export function BattleHasRewards(v: any): v is BattleWithRewards {
     return !!v?.rewards?.reward_list;
 }
+
+type ContributionScenario = {
+    cmd: "contribution";
+    amount?: number;
+    limit_flag?: boolean;
+};
+
+export function isContributionScenario(v: any): v is ContributionScenario {
+    return v?.cmd && v.cmd === "contribution";
+}
+
+type BattleStatus = {
+    duplicate_key: number;
+    lyria_pos: number;
+    microtime: string;
+    navi_information: { navi: string }[];
+    scenario: (
+        | {
+              cmd: string;
+          }
+        | ContributionScenario
+    )[];
+    status: {
+        ability: Ability;
+        ability_turn: number;
+        bossmode: {
+            modechange: string;
+            modegauge: number;
+            log_type: number;
+        }[];
+        chain_burst_gauge: string;
+        fellow: number; // Raid allies?
+        is_escorted_character_dead: number;
+        is_forced_retire: boolean;
+        is_guard_status: {
+            is_guard_status: number;
+            is_guard_unavailable: number;
+            pos: number;
+        }[];
+        lupi: number;
+        turn: number; // Current turn
+        // Other garbage here
+    };
+};
+
+export function isBattleStatus(v: any): v is BattleStatus {
+    return v && Array.isArray(v.scenario) && v.ability && v.ability.hasOwnProperty("turn");
+}

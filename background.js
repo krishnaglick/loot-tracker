@@ -1,7 +1,7 @@
 define("response-types", ["require", "exports"], function (require, exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
-    exports.BattleHasRewards = exports.RaidCompleteData = exports.isBattleUserData = exports.isUserData = exports.isQuestComplete = exports.isFightStart = exports.isGranblueResponse = void 0;
+    exports.isBattleStatus = exports.isContributionScenario = exports.BattleHasRewards = exports.RaidCompleteData = exports.isBattleUserData = exports.isUserData = exports.isQuestComplete = exports.isFightStart = exports.isGranblueResponse = void 0;
     function isGranblueResponse(v) {
         return (v?.hasOwnProperty("base64Encoded") &&
             v.base64Encoded === false &&
@@ -36,6 +36,14 @@ define("response-types", ["require", "exports"], function (require, exports) {
         return !!v?.rewards?.reward_list;
     }
     exports.BattleHasRewards = BattleHasRewards;
+    function isContributionScenario(v) {
+        return v?.cmd && v.cmd === "contribution";
+    }
+    exports.isContributionScenario = isContributionScenario;
+    function isBattleStatus(v) {
+        return v && Array.isArray(v.scenario) && v.ability && v.ability.hasOwnProperty("turn");
+    }
+    exports.isBattleStatus = isBattleStatus;
 });
 define("background", ["require", "exports", "response-types"], function (require, exports, response_types_1) {
     "use strict";
@@ -53,9 +61,10 @@ define("background", ["require", "exports", "response-types"], function (require
         2: "Silver",
         3: "Gold",
         4: "MVP",
-        11: "Host",
-        13: "Blue",
+        11: "Blue",
+        13: "Purple",
     };
+    const fightData = {};
     function normalizeLoot(battleData) {
         const raw = [];
         console.log("Normalizing loot: ", battleData);
@@ -89,53 +98,66 @@ define("background", ["require", "exports", "response-types"], function (require
     function haveRequestId(v) {
         return !!(v && v.hasOwnProperty("requestId"));
     }
-    const allEventHandler = ({ tabId }, message, params) => {
+    const getRequestData = (tabId, requestId) => Promise.all([
+        new Promise((res) => chrome.debugger.sendCommand({
+            tabId,
+        }, "Network.getResponseBody", {
+            requestId: requestId,
+        }, res)),
+        new Promise((res) => chrome.tabs.get(tabId, res)),
+    ]);
+    const allEventHandler = async (source, message, params) => {
+        const { tabId } = source;
         if (message == "Network.responseReceived" && haveRequestId(params)) {
             // This lets us get the response data from the intercepted request
-            chrome.debugger.sendCommand({
-                tabId,
-            }, "Network.getResponseBody", {
-                requestId: params.requestId,
-            }, (response) => {
-                // There's a lotta data coming across, some we don't care about.
-                if (response_types_1.isGranblueResponse(response)) {
-                    try {
-                        const data = JSON.parse(response.body);
-                        console.log("Response Body: ", data);
-                        // Save the user for reporting
-                        if (response_types_1.isBattleUserData(data)) {
-                            currentUser.id = data.user_id;
-                            currentUser.name = data.nickname;
-                            storeUser(currentUser);
-                        }
-                        if (response_types_1.isUserData(data)) {
-                            currentUser.id = data.id;
-                            currentUser.name = data.nickname;
-                            storeUser(currentUser);
-                        }
-                        // If we got reward data
-                        if (response_types_1.BattleHasRewards(data)) {
-                            normalizeLoot(data);
-                            // Below is some basic chest logging, this isn't what's reported.
-                            Object.entries(data.rewards.reward_list).forEach(([chestNumber, chestContents]) => {
-                                if (Object.values(chestContents).length) {
-                                    console.log(`Received ${Object.values(chestContents)
-                                        .map((contents) => `${contents.count} ${contents.name}`)
-                                        .join(", ")} from ${chestMap[chestNumber]} Chest(s) - (${chestNumber})`);
-                                }
-                            });
-                            Object.entries(data.rewards.auto_recycling_weapon_list).forEach(([chestNumber, chestContents]) => {
-                                if (Object.values(chestContents).length) {
-                                    console.log(`Reserved ${Object.values(chestContents)
-                                        .map((contents) => `${contents.count} ${contents.name}`)
-                                        .join(", ")} from ${chestMap[chestNumber]} Chest(s) - Reserved`);
-                                }
-                            });
-                        }
+            const [response, tabInfo] = await getRequestData(tabId ?? 0, params.requestId);
+            let battleId = NaN;
+            if (tabInfo.url?.includes("raid_multi")) {
+                battleId = Number(tabInfo.url?.split("/").slice(-1)[0]);
+            }
+            else if (tabInfo.url?.includes("result_multi")) {
+                battleId = Number(tabInfo.url?.split("/").slice(-2)[0]);
+            }
+            if (response_types_1.isGranblueResponse(response) && !isNaN(battleId)) {
+                console.log({ battleId });
+                try {
+                    const data = JSON.parse(response.body);
+                    console.log("Response Body: ", data);
+                    // Save the user for reporting
+                    if (response_types_1.isBattleUserData(data)) {
+                        currentUser.id = data.user_id;
+                        currentUser.name = data.nickname;
+                        storeUser(currentUser);
                     }
-                    catch { }
+                    if (response_types_1.isUserData(data)) {
+                        currentUser.id = data.id;
+                        currentUser.name = data.nickname;
+                        storeUser(currentUser);
+                    }
+                    if (response_types_1.isBattleStatus(data)) {
+                    }
+                    // If we got reward data
+                    if (response_types_1.BattleHasRewards(data)) {
+                        normalizeLoot(data);
+                        // Below is some basic chest logging, this isn't what's reported.
+                        Object.entries(data.rewards.reward_list).forEach(([chestNumber, chestContents]) => {
+                            if (Object.values(chestContents).length) {
+                                console.log(`Received ${Object.values(chestContents)
+                                    .map((contents) => `${contents.count} ${contents.name}`)
+                                    .join(", ")} from ${chestMap[chestNumber]} Chest(s) - (${chestNumber})`);
+                            }
+                        });
+                        Object.entries(data.rewards.auto_recycling_weapon_list).forEach(([chestNumber, chestContents]) => {
+                            if (Object.values(chestContents).length) {
+                                console.log(`Reserved ${Object.values(chestContents)
+                                    .map((contents) => `${contents.count} ${contents.name}`)
+                                    .join(", ")} from ${chestMap[chestNumber]} Chest(s) - Reserved`);
+                            }
+                        });
+                    }
                 }
-            });
+                catch { }
+            }
         }
     };
     let attached = false;
