@@ -38,13 +38,76 @@ type Potion = {
     battle_icon_type: string;
 };
 
+export type BossParam = {
+    Lv: string;
+    alive: number; // 0 | 1 I believe
+    attr: string;
+    attribute: string;
+    cjs: string;
+    cjs_index: string;
+    condition: {
+        debuff: {
+            status: string;
+            is_unusable_harb: boolean;
+        }[];
+    };
+    cutin_flag: string;
+    damage_position_plus: {
+        x: string;
+        y: string;
+    };
+    dropped: unknown[];
+    effect: string;
+    effect_all: string;
+    effect_position: {
+        x: string;
+        y: string;
+    };
+    enemy_id: string;
+    fatigue_motion_flg: string;
+    force_setin: number;
+    form: number;
+    gauge_group: number;
+    hp: string;
+    hpmax: number;
+    is_key_enemy: number;
+    message_position: {
+        x: string;
+        y: string;
+    };
+    modechange: string;
+    modeflag: number;
+    modegauge: number;
+    monster: string; // Boss Name
+    motion_link_list: unknown[];
+    name: {
+        ja: string; // Japanese name when lang is JP, English otherwise
+        en: string; // English name
+    };
+    no_attack_flag: boolean;
+    no_attribute_flag: string;
+    no_special_flag: string;
+    number: 1;
+    rare_flag: string;
+    recast: string;
+    recastmax: string;
+    runaway_motion_flg: string;
+    setin_voice: null;
+    spec: string;
+    split: string[];
+    timing: { effect: string; damage: string };
+    tribe: string;
+    type: string;
+    visible_after_dead: string;
+};
+
 type Boss = {
     type: string;
     number: number;
     modechange: string;
-    modegauge: 0;
+    modegauge: number;
     star: number;
-    param: {}[]; // This is each stage of the fight
+    param: BossParam[]; // This is each stage of the fight
 };
 
 type FightStart = {
@@ -158,6 +221,7 @@ type FightStart = {
         special_once_flag: boolean;
         start_recast: string;
     };
+    switching_hp_gauge: boolean;
     temporary: {
         cmd: string;
         small: string;
@@ -165,12 +229,24 @@ type FightStart = {
         temporary_potion_one_battle_icon_type: string;
         temporary_potion_all_battle_icon_type: string;
     };
+    temporary_potion_all: {
+        assist: number;
+        chat: number;
+    };
     temporary_potion_all_name: string;
     temporary_potion_one_name: string;
     timer: number;
     treasure: Treasure;
     turn: number;
     turn_waiting: number;
+    twitter: {
+        battle_id: string;
+        enemy_id: string;
+        image: string;
+        monster: string;
+        raid_id: string;
+    };
+    user_id: string;
     use_ap: boolean;
     voice_stamp: number;
     weapon: { weapon_l: string; weapon_r: string };
@@ -181,14 +257,14 @@ type FightStart = {
 
 export function isFightStart(v: any): v is FightStart {
     return (
-        v?.hasOwnProperty("treasure") &&
-        v?.hasOwnProperty("quest_id") &&
+        v?.hasOwnProperty("boss") &&
         v?.hasOwnProperty("raid_id") &&
+        v?.hasOwnProperty("user_id") &&
         v?.hasOwnProperty("nickname")
     );
 }
 
-type Weapon = {
+export type Weapon = {
     class_name: string;
     count: string;
     disable: boolean;
@@ -359,11 +435,11 @@ type BattleUserData = {
     assist: {};
     auto_attack_display_flag: number;
     avm: string;
-    background: "/sp/raid/bg/common_026.jpg";
-    background_image_object: [];
-    balloon: { boss: [] };
+    background: string;
+    background_image_object: { [key: number]: string };
+    balloon: { boss: { pos: number; serif: string; voice: null }[] };
     base_fps: number;
-    battle: { total: number; count: 1 };
+    battle: { total: number; count: number };
     battle_auto_type: number;
     bgm: string;
     bgm_setting: { is_change_bgm: boolean; bgm: null };
@@ -519,12 +595,12 @@ export function BattleHasRewards(v: any): v is BattleWithRewards {
 
 type ContributionScenario = {
     cmd: "contribution";
-    amount?: number;
-    limit_flag?: boolean;
+    amount: number;
+    limit_flag: boolean;
 };
 
 export function isContributionScenario(v: any): v is ContributionScenario {
-    return v?.cmd && v.cmd === "contribution";
+    return v?.cmd === "contribution";
 }
 
 type BattleStatus = {
@@ -562,5 +638,14 @@ type BattleStatus = {
 };
 
 export function isBattleStatus(v: any): v is BattleStatus {
-    return v && Array.isArray(v.scenario) && v.ability && v.ability.hasOwnProperty("turn");
+    return v && Array.isArray(v.scenario) && v.status?.turn;
+}
+
+type QuestStart = {
+    action_point: string;
+    chapter_name: string;
+};
+
+export function isQuestStart(v: any): v is QuestStart {
+    return v && v.chapter_name;
 }
