@@ -53,12 +53,15 @@ define("background", ["require", "exports", "response-types"], function (require
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     const currentUser = {};
+    const fightData = {};
     const storeUser = (user) => chrome.storage.sync.set({ user });
-    chrome.storage.sync.get(["user"], ({ user }) => {
+    const storeFightData = () => chrome.storage.sync.set({ fightData });
+    chrome.storage.sync.get(["user", "fightData"], ({ user, fightData: savedFightData }) => {
         if (user?.name || user?.id) {
             currentUser.name = user.name;
             currentUser.id = user.id;
         }
+        Object.entries(savedFightData ?? {}).forEach(([k, v]) => (fightData[k] = v));
     });
     const chestMap = {
         1: "Wooden",
@@ -68,23 +71,10 @@ define("background", ["require", "exports", "response-types"], function (require
         11: "Blue",
         13: "Purple",
     };
-    const fightData = {};
     globalThis.fightData = fightData;
-    globalThis.traverseObject = (object, value) => {
-        Object.entries(object).forEach(([k, v]) => {
-            if (v === value) {
-                console.log("Found!: ", k, v);
-            }
-            else {
-                if (typeof v === "object") {
-                    globalThis.traverseObject(v, value);
-                }
-            }
-        });
-    };
-    function normalizeLoot(battleData, battleId) {
+    async function normalizeLoot(battleData, battleId) {
         const lootData = [];
-        console.log("Normalizing loot: ", battleData);
+        // console.log("Normalizing loot: ", battleData);
         try {
             Object.entries(battleData.rewards.reward_list).forEach(([chestType, chests]) => {
                 Object.entries(chests).forEach(([chestId, chestContents]) => {
@@ -94,7 +84,6 @@ define("background", ["require", "exports", "response-types"], function (require
                         chestId,
                         chestType,
                         chestTypeName: chestMap[Number(chestType)],
-                        fightName: battleData.appearance?.quest_name || battleData.appearance?.title || "Unknown",
                         battleId,
                         username: currentUser.name,
                         userId: currentUser.id,
@@ -102,16 +91,18 @@ define("background", ["require", "exports", "response-types"], function (require
                 });
             });
             fightData[battleId].loot = lootData;
-            console.log("Normalized loot: ", lootData);
-            console.log("Fight Data: ", fightData[battleId]);
+            // console.log("Normalized loot: ", lootData);
+            // console.log("Fight Data: ", fightData[battleId]);
             // Save the data to firebase
             if (currentUser.id) {
-                fetch(`https://drop-data-67126-default-rtdb.firebaseio.com/${currentUser.id}/drop-data.json`, {
-                    body: JSON.stringify(lootData),
+                await fetch(`https://drop-data-67126-default-rtdb.firebaseio.com/${currentUser.id}/${battleId}/data.json`, {
+                    body: JSON.stringify(fightData[battleId]),
                     headers: { "Content-Type": "application/json" },
-                    method: "POST",
+                    method: "PUT",
                 });
+                delete fightData[battleId];
             }
+            storeFightData();
         }
         catch (err) {
             console.error(err);
@@ -141,8 +132,6 @@ define("background", ["require", "exports", "response-types"], function (require
                 battleId = Number(tabInfo.url?.split("/").slice(-2)[0]);
             }
             if (response_types_1.isGranblueResponse(response)) {
-                globalThis.reponses = globalThis.reponses || [];
-                globalThis.reponses.push(response);
                 try {
                     const data = JSON.parse(response.body);
                     console.log("Response Body: ", data);
@@ -179,20 +168,30 @@ define("background", ["require", "exports", "response-types"], function (require
                         if (response_types_1.BattleHasRewards(data)) {
                             normalizeLoot(data, battleId);
                             // Below is some basic chest logging, this isn't what's reported.
-                            Object.entries(data.rewards.reward_list).forEach(([chestNumber, chestContents]) => {
-                                if (Object.values(chestContents).length) {
-                                    console.log(`Received ${Object.values(chestContents)
-                                        .map((contents) => `${contents.count} ${contents.name}`)
-                                        .join(", ")} from ${chestMap[chestNumber]} Chest(s) - (${chestNumber})`);
-                                }
-                            });
-                            Object.entries(data.rewards.auto_recycling_weapon_list).forEach(([chestNumber, chestContents]) => {
-                                if (Object.values(chestContents).length) {
-                                    console.log(`Reserved ${Object.values(chestContents)
-                                        .map((contents) => `${contents.count} ${contents.name}`)
-                                        .join(", ")} from ${chestMap[chestNumber]} Chest(s) - Reserved`);
-                                }
-                            });
+                            // Object.entries(data.rewards.reward_list).forEach(([chestNumber, chestContents]) => {
+                            //     if (Object.values(chestContents).length) {
+                            //         console.log(
+                            //             `Received ${Object.values(chestContents)
+                            //                 .map((contents) => `${contents.count} ${contents.name}`)
+                            //                 .join(", ")} from ${
+                            //                 chestMap[chestNumber as unknown as number]
+                            //             } Chest(s) - (${chestNumber})`
+                            //         );
+                            //     }
+                            // });
+                            // Object.entries(data.rewards.auto_recycling_weapon_list).forEach(
+                            //     ([chestNumber, chestContents]) => {
+                            //         if (Object.values(chestContents).length) {
+                            //             console.log(
+                            //                 `Reserved ${Object.values(chestContents)
+                            //                     .map((contents) => `${contents.count} ${contents.name}`)
+                            //                     .join(", ")} from ${
+                            //                     chestMap[chestNumber as unknown as number]
+                            //                 } Chest(s) - Reserved`
+                            //             );
+                            //         }
+                            //     }
+                            // );
                         }
                     }
                 }
@@ -203,24 +202,25 @@ define("background", ["require", "exports", "response-types"], function (require
     let attached = false;
     let target;
     // Setup toggle functionality
-    // chrome.browserAction.onClicked.addListener(() => {
-    //     if (!attached) {
-    chrome.debugger.getTargets((targets) => {
-        // Get the Granblue Tab
-        target = targets.find((target) => target.type === "page" && ["Granblue Fantasy", "グランブルーファンタジー"].includes(target.title));
-        if (target?.tabId) {
-            // Attach the debugger so we can intercept requests
-            chrome.debugger.attach({ tabId: target.tabId }, "1.0", () => {
-                chrome.debugger.sendCommand({ tabId: target.tabId }, "Network.enable");
-                attached = true;
+    chrome.browserAction.onClicked.addListener(() => {
+        if (!attached) {
+            chrome.debugger.getTargets((targets) => {
+                // Get the Granblue Tab
+                target = targets.find((target) => target.type === "page" && ["Granblue Fantasy", "グランブルーファンタジー"].includes(target.title));
+                if (target?.tabId) {
+                    // Attach the debugger so we can intercept requests
+                    chrome.debugger.attach({ tabId: target.tabId }, "1.0", () => {
+                        chrome.debugger.sendCommand({ tabId: target.tabId }, "Network.enable");
+                        attached = true;
+                    });
+                    chrome.debugger.onEvent.addListener(allEventHandler);
+                }
             });
-            chrome.debugger.onEvent.addListener(allEventHandler);
+        }
+        else {
+            if (target) {
+                chrome.debugger.detach({ tabId: target.tabId }, () => (attached = false));
+            }
         }
     });
 });
-//     } else {
-//         if (target) {
-//             chrome.debugger.detach({ tabId: target.tabId }, () => (attached = false));
-//         }
-//     }
-// });

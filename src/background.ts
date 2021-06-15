@@ -14,12 +14,24 @@ import {
 type User = { name: string; id: string };
 const currentUser = {} as User;
 
+const fightData: {
+    [battleId: string]: {
+        honors: number;
+        turnCount: number;
+        loot: NormalizedLoot[];
+        bossData: BossParam[];
+        thLevel: number;
+    };
+} = {};
+
 const storeUser = (user: User) => chrome.storage.sync.set({ user });
-chrome.storage.sync.get(["user"], ({ user }) => {
+const storeFightData = () => chrome.storage.sync.set({ fightData });
+chrome.storage.sync.get(["user", "fightData"], ({ user, fightData: savedFightData }) => {
     if (user?.name || user?.id) {
         currentUser.name = user.name;
         currentUser.id = user.id;
     }
+    Object.entries(savedFightData ?? {}).forEach(([k, v]) => (fightData[k] = v as any));
 });
 
 const chestMap: { [key: number]: string } = {
@@ -31,41 +43,19 @@ const chestMap: { [key: number]: string } = {
     13: "Purple",
 };
 
-const fightData: {
-    [battleId: string]: {
-        honors: number;
-        turnCount: number;
-        loot: NormalizedLoot[];
-        bossData: BossParam[];
-        thLevel: number;
-    };
-} = {};
-
 (globalThis as any).fightData = fightData;
-(globalThis as any).traverseObject = (object: any, value: string | number) => {
-    Object.entries(object).forEach(([k, v]) => {
-        if (v === value) {
-            console.log("Found!: ", k, v);
-        } else {
-            if (typeof v === "object") {
-                (globalThis as any).traverseObject(v, value);
-            }
-        }
-    });
-};
 
 type NormalizedLoot = {
     chestId: string;
     chestType: string;
     chestTypeName: string;
-    fightName: string;
     battleId: number;
     username: string;
     userId: string;
 } & Weapon;
-function normalizeLoot(battleData: BattleWithRewards, battleId: number) {
+async function normalizeLoot(battleData: BattleWithRewards, battleId: number) {
     const lootData: NormalizedLoot[] = [];
-    console.log("Normalizing loot: ", battleData);
+    // console.log("Normalizing loot: ", battleData);
     try {
         Object.entries(battleData.rewards.reward_list).forEach(([chestType, chests]) => {
             Object.entries(chests).forEach(([chestId, chestContents]) => {
@@ -75,7 +65,6 @@ function normalizeLoot(battleData: BattleWithRewards, battleId: number) {
                     chestId,
                     chestType,
                     chestTypeName: chestMap[Number(chestType)],
-                    fightName: battleData.appearance?.quest_name || battleData.appearance?.title || "Unknown",
                     battleId,
                     username: currentUser.name,
                     userId: currentUser.id,
@@ -83,16 +72,18 @@ function normalizeLoot(battleData: BattleWithRewards, battleId: number) {
             });
         });
         fightData[battleId].loot = lootData;
-        console.log("Normalized loot: ", lootData);
-        console.log("Fight Data: ", fightData[battleId]);
+        // console.log("Normalized loot: ", lootData);
+        // console.log("Fight Data: ", fightData[battleId]);
         // Save the data to firebase
         if (currentUser.id) {
-            fetch(`https://drop-data-67126-default-rtdb.firebaseio.com/${currentUser.id}/drop-data.json`, {
-                body: JSON.stringify(lootData),
+            await fetch(`https://drop-data-67126-default-rtdb.firebaseio.com/${currentUser.id}/${battleId}/data.json`, {
+                body: JSON.stringify(fightData[battleId]),
                 headers: { "Content-Type": "application/json" },
-                method: "POST",
+                method: "PUT",
             });
+            delete fightData[battleId];
         }
+        storeFightData();
     } catch (err) {
         console.error(err);
     }
@@ -135,8 +126,6 @@ const allEventHandler: Parameters<typeof chrome.debugger.onEvent.addListener>["0
             battleId = Number(tabInfo.url?.split("/").slice(-2)[0]);
         }
         if (isGranblueResponse(response)) {
-            (globalThis as any).reponses = (globalThis as any).reponses || [];
-            (globalThis as any).reponses.push(response);
             try {
                 const data = JSON.parse(response.body);
                 console.log("Response Body: ", data);
@@ -177,30 +166,30 @@ const allEventHandler: Parameters<typeof chrome.debugger.onEvent.addListener>["0
                     if (BattleHasRewards(data)) {
                         normalizeLoot(data, battleId);
                         // Below is some basic chest logging, this isn't what's reported.
-                        Object.entries(data.rewards.reward_list).forEach(([chestNumber, chestContents]) => {
-                            if (Object.values(chestContents).length) {
-                                console.log(
-                                    `Received ${Object.values(chestContents)
-                                        .map((contents) => `${contents.count} ${contents.name}`)
-                                        .join(", ")} from ${
-                                        chestMap[chestNumber as unknown as number]
-                                    } Chest(s) - (${chestNumber})`
-                                );
-                            }
-                        });
-                        Object.entries(data.rewards.auto_recycling_weapon_list).forEach(
-                            ([chestNumber, chestContents]) => {
-                                if (Object.values(chestContents).length) {
-                                    console.log(
-                                        `Reserved ${Object.values(chestContents)
-                                            .map((contents) => `${contents.count} ${contents.name}`)
-                                            .join(", ")} from ${
-                                            chestMap[chestNumber as unknown as number]
-                                        } Chest(s) - Reserved`
-                                    );
-                                }
-                            }
-                        );
+                        // Object.entries(data.rewards.reward_list).forEach(([chestNumber, chestContents]) => {
+                        //     if (Object.values(chestContents).length) {
+                        //         console.log(
+                        //             `Received ${Object.values(chestContents)
+                        //                 .map((contents) => `${contents.count} ${contents.name}`)
+                        //                 .join(", ")} from ${
+                        //                 chestMap[chestNumber as unknown as number]
+                        //             } Chest(s) - (${chestNumber})`
+                        //         );
+                        //     }
+                        // });
+                        // Object.entries(data.rewards.auto_recycling_weapon_list).forEach(
+                        //     ([chestNumber, chestContents]) => {
+                        //         if (Object.values(chestContents).length) {
+                        //             console.log(
+                        //                 `Reserved ${Object.values(chestContents)
+                        //                     .map((contents) => `${contents.count} ${contents.name}`)
+                        //                     .join(", ")} from ${
+                        //                     chestMap[chestNumber as unknown as number]
+                        //                 } Chest(s) - Reserved`
+                        //             );
+                        //         }
+                        //     }
+                        // );
                     }
                 }
             } catch {}
@@ -212,25 +201,26 @@ let attached = false;
 type ArrayType<T> = T extends (infer U)[] ? U : T;
 let target: ArrayType<Parameters<Parameters<typeof chrome.debugger.getTargets>["0"]>["0"]> | undefined;
 // Setup toggle functionality
-// chrome.browserAction.onClicked.addListener(() => {
-//     if (!attached) {
-chrome.debugger.getTargets((targets) => {
-    // Get the Granblue Tab
-    target = targets.find(
-        (target) => target.type === "page" && ["Granblue Fantasy", "グランブルーファンタジー"].includes(target.title)
-    );
-    if (target?.tabId) {
-        // Attach the debugger so we can intercept requests
-        chrome.debugger.attach({ tabId: target.tabId }, "1.0", () => {
-            chrome.debugger.sendCommand({ tabId: target!.tabId }, "Network.enable");
-            attached = true;
+chrome.browserAction.onClicked.addListener(() => {
+    if (!attached) {
+        chrome.debugger.getTargets((targets) => {
+            // Get the Granblue Tab
+            target = targets.find(
+                (target) =>
+                    target.type === "page" && ["Granblue Fantasy", "グランブルーファンタジー"].includes(target.title)
+            );
+            if (target?.tabId) {
+                // Attach the debugger so we can intercept requests
+                chrome.debugger.attach({ tabId: target.tabId }, "1.0", () => {
+                    chrome.debugger.sendCommand({ tabId: target!.tabId }, "Network.enable");
+                    attached = true;
+                });
+                chrome.debugger.onEvent.addListener(allEventHandler);
+            }
         });
-        chrome.debugger.onEvent.addListener(allEventHandler);
+    } else {
+        if (target) {
+            chrome.debugger.detach({ tabId: target.tabId }, () => (attached = false));
+        }
     }
 });
-//     } else {
-//         if (target) {
-//             chrome.debugger.detach({ tabId: target.tabId }, () => (attached = false));
-//         }
-//     }
-// });
